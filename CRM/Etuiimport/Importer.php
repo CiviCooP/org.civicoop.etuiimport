@@ -26,7 +26,7 @@ class CRM_Etuiimport_Importer {
       and
         email like '%@europarl.europa.eu'      
       and
-        id = $id
+        c.id = $id
     ";
     $dao = CRM_Core_DAO::executeQuery($sql);
     if ($dao->fetch()) {
