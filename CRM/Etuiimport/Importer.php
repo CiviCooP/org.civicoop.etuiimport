@@ -72,7 +72,7 @@ class CRM_Etuiimport_Importer {
         1 => [$status, 'String'],
         2 => [$id, 'Integer'],
       ];
-      CRM_Core_DAO::executeQuery($updateSQL);
+      CRM_Core_DAO::executeQuery($updateSQL, $updateParams);
     }
 
     return TRUE;

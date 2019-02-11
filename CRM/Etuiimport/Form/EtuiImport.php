@@ -20,7 +20,7 @@ class CRM_Etuiimport_Form_EtuiImport extends CRM_Core_Form {
   public function buildQuickForm() {
     $action = [
       'parl' => 'Correct EU Parliament contacts without name',
-      'hedamag' => 'Import HesaMag Contacts',
+      'hesamag' => 'Import HesaMag Contacts',
     ];
     $this->addRadio('action', 'Import:', $action, NULL, '<br>');
 
