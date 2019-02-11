@@ -37,7 +37,7 @@ class CRM_Etuiimport_Importer {
       }
       else {
         $params = [
-          'id' => $dao->id,
+          'id' => $id,
           'first_name' => ucfirst($splitName[0]),
           'last_name' => ucfirst($splitName[1]),
           'employer_id' => 13240,
