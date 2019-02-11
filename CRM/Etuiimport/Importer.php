@@ -45,6 +45,8 @@ class CRM_Etuiimport_Importer {
         civicrm_api3('Contact', 'create', $params);
       }
     }
+
+    return TRUE;
   }
 
   public static function import_hesamag_subscriber(CRM_Queue_TaskContext $ctx, $id) {
