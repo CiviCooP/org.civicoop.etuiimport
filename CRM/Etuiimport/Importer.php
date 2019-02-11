@@ -61,13 +61,122 @@ class CRM_Etuiimport_Importer {
     ";
     $dao = CRM_Core_DAO::executeQuery($sql);
     if ($dao->fetch()) {
-      // check if this contact exists in civi
-      $params = [
-        'first_name' => $dao->first_name,
-        'last_name' => $dao->last_name,
+      $status = '';
+      $contactID = 0;
+
+      // find contact by name and organization
+      $contactID = self::findContactByName($dao->organization, $dao->firstName, $dao->lastName, $status);
+
+      $updateSQL = "update tmpetui_hesamag set status = %1 where id = %2";
+      $updateParams = [
+        1 => [$status, 'String'],
+        2 => [$id, 'Integer'],
       ];
+      CRM_Core_DAO::executeQuery($updateSQL);
     }
 
     return TRUE;
   }
+
+  public static function findContactByName($organization, $firstName, $lastName, &$status) {
+    if ($firstName == '-' || $firstName == '--') {
+      $firstName = '';
+    }
+    if ($lastName == '-' || $lastName == '--') {
+      $lastName = '';
+    }
+
+    // try full match
+    if ($organization && $firstName && $lastName) {
+      $params = [
+        'first_name' => $firstName,
+        'last_name' => $lastName,
+        'organization_name' => $organization,
+        'contact_type' => 'Individual',
+        'sequential' => 1,
+      ];
+      $result = civicrm_api3('Contact', 'get', $params);
+
+      if ($result['count'] == 1) {
+        // OK
+        $status = 'OK';
+        return $result['values'][0]['id'];
+      }
+      elseif ($result['count'] > 0) {
+        // multiple matches
+        $status = "multiple matches for organissation + first name + last name";
+        return 0;
+      }
+    }
+
+    // try match on person's name
+    if ($firstName && $lastName) {
+      $params = [
+        'first_name' => $firstName,
+        'last_name' => $lastName,
+        'contact_type' => 'Individual',
+        'sequential' => 1,
+      ];
+      $result = civicrm_api3('Contact', 'get', $params);
+
+      if ($result['count'] == 1) {
+        // OK
+        $status = 'OK';
+        return $result['values'][0]['id'];
+      }
+      elseif ($result['count'] > 0) {
+        // multiple matches
+        $status = "multiple matches for first name + last name";
+        return 0;
+      }
+    }
+
+    // try last name and organization
+    if ($lastName && $organization) {
+      $params = [
+        'last_name' => $lastName,
+        'organization_name' => $organization,
+        'contact_type' => 'Individual',
+        'sequential' => 1,
+      ];
+      $result = civicrm_api3('Contact', 'get', $params);
+
+      if ($result['count'] == 1) {
+        // OK
+        $status = 'OK';
+        return $result['values'][0]['id'];
+      }
+      elseif ($result['count'] > 0) {
+        // multiple matches
+        $status = "multiple matches for last name + organization";
+        return 0;
+      }
+    }
+
+    // try organization
+    if ($organization) {
+      $params = [
+        'organization_name' => $organization,
+        'contact_type' => 'Organization',
+        'sequential' => 1,
+      ];
+      $result = civicrm_api3('Contact', 'get', $params);
+
+      if ($result['count'] == 1) {
+        // OK
+        $status = 'OK';
+        return $result['values'][0]['id'];
+      }
+      elseif ($result['count'] > 0) {
+        // multiple matches
+        $status = "multiple matches for organization";
+        return 0;
+      }
+    }
+
+    // not found
+    $status = 'not found';
+    return 0;
+  }
+
 }
