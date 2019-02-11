@@ -21,6 +21,7 @@ class CRM_Etuiimport_Form_EtuiImport extends CRM_Core_Form {
     $action = [
       'parl' => 'Correct EU Parliament contacts without name',
       'hesamag' => 'Import HesaMag Contacts',
+      'test' => 'test',
     ];
     $this->addRadio('action', 'Import:', $action, NULL, '<br>');
 
@@ -81,6 +82,9 @@ class CRM_Etuiimport_Form_EtuiImport extends CRM_Core_Form {
         $task = new CRM_Queue_Task(['CRM_Etuiimport_Importer', 'import_hesamag_subscriber'], [$dao->id]);
         $this->queue->createItem($task);
       }
+    }
+    elseif ($values['action'] == 'test') {
+      CRM_Etuiimport_Importer::import_hesamag_subscriber(new CRM_Queue_TaskContext, 7);
     }
     else {
       CRM_Core_Session::setStatus('Action "' . $values['action'] . '" not implemented.', 'Import Error', 'warning');

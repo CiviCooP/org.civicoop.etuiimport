@@ -68,13 +68,13 @@ class CRM_Etuiimport_Importer {
       $contactID = 0;
 
       // find contact by name and organization
-      $contactID = self::findContactByName($dao->organization, $dao->firstName, $dao->lastName, $status);
+      $contactID = self::findContactByName($dao->organization, $dao->first_name, $dao->last_name, $status);
 
       if ($contactID == 0) {
         // the contact was not found, we create it
-        $contactID = self::createHesaMagContact($dao->organization, $dao->prefix, $dao->firstName, $dao->lastName, $status);
+        $contactID = self::createHesaMagContact($dao->organization, $dao->prefix, $dao->first_name, $dao->last_name, $status);
       }
-      
+
       if ($contactID > 0) {
         // add the magazine address and subscription
         self::createHesaMagAddress($contactID, $dao, $status);  
@@ -93,6 +93,8 @@ class CRM_Etuiimport_Importer {
   }
 
   public static function createHesaMagContact($organization, $prefix, $firstName, $lastName, &$status) {
+    $woman = ['Ms', 'Mrs', 'Madame', 'Frau', 'Miss', 'Señora'];
+
     if ($firstName == '-' || $firstName == '--') {
       $firstName = '';
     }
@@ -108,10 +110,17 @@ class CRM_Etuiimport_Importer {
         'sequential' => 1,
         'source' => 'HESAMAG import',
       ];
+
+      if (in_array($prefix, $woman)) {
+        $params['prefix_id'] = 1;
+      }
+      else {
+        $params['prefix_id'] = 3;
+      }
     }
     elseif ($organization && strpos($organization, $lastName) == FALSE) {
       $params = [
-        'organization_name' => $lastName,
+        'organization_name' => $organization,
         'contact_type' => 'Organization',
         'sequential' => 1,
         'source' => 'HESAMAG import',
@@ -140,9 +149,9 @@ class CRM_Etuiimport_Importer {
       left outer join
         civicrm_address a on a.contact_id = c.id and a.location_type_id = 8
       left outer join
-        civicrm_membership m_en on m_en.contact_id = m_en.id and m_en.membership_type_id = 1 
+        civicrm_membership m_en on m_en.contact_id = c.id and m_en.membership_type_id = 1 
       left outer join
-        civicrm_membership m_fr on m_fr.contact_id = m_fr.id and m_fr.membership_type_id = 2 
+        civicrm_membership m_fr on m_fr.contact_id = c.id and m_fr.membership_type_id = 2 
       where
         c.id = $contactID 
     ";
@@ -152,9 +161,6 @@ class CRM_Etuiimport_Importer {
       return;
     }
 
-    /*
-
-     */
     // create the address
     $addressParams = [
       'contact_id' => $contactID,
@@ -184,29 +190,29 @@ class CRM_Etuiimport_Importer {
     // FORMAT THE ADDRESS
 
     // check for a person name
-    if ($dao->first_name || $dao->last_Name) {
-      $name = $dao->first_name . ' ' . $dao->last_Name;
+    if ($dao->first_name || $dao->last_name) {
+      $name = $dao->first_name . ' ' . $dao->last_name;
     }
       // check if it's a real organization (ie. not a fake from Synergy)
-    if ($dao->organization && strpos($dao->organization, $dao->last_Name) == FALSE) {
+    if ($dao->organization && strpos($dao->organization, $dao->last_name) == FALSE) {
       $addressParams['supplemental_address_1'] = $dao->organization;
 
       if ($name && $dao->department) {
         $addressParams['supplemental_address_2'] = $dao->department;
-        $addressParams['supplemental_address_3'] = 'Attn. ' . $name;
+        $addressParams['supplemental_address_3'] = 'Attn: ' . $name;
       }
       elseif ($dao->department) {
         $addressParams['supplemental_address_2'] = $dao->department;
       }
       elseif ($name) {
-        $addressParams['supplemental_address_2'] = 'Attn. ' . $name;
+        $addressParams['supplemental_address_2'] = 'Attn: ' . $name;
       }
     }
     else {
         // person
       if ($name && $dao->department) {
         $addressParams['supplemental_address_1'] = $dao->department;
-        $addressParams['supplemental_address_2'] = 'Attn. ' . $name;
+        $addressParams['supplemental_address_2'] = 'Attn: ' . $name;
       }
       elseif ($dao->department) {
         $addressParams['supplemental_address_1'] = $dao->department;
@@ -248,6 +254,7 @@ class CRM_Etuiimport_Importer {
       return;
     }
 
+    civicrm_api3('Membership', 'create', $magParams);
   }
 
   public static function getCountryID($country) {
