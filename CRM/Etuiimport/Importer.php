@@ -354,7 +354,7 @@ class CRM_Etuiimport_Importer {
     }
 
     // try organization
-    if ($organization) {
+    if ($firstName == '' && $lastName == '' && $organization) {
       $params = [
         'organization_name' => $organization,
         'contact_type' => 'Organization',
