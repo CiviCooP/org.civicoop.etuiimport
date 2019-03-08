@@ -67,17 +67,17 @@ class CRM_Etuiimport_Importer {
       $status = '';
       $contactID = 0;
 
-      // find contact by name and organization
-      $contactID = self::findContactByName($dao->organization, $dao->first_name, $dao->last_name, $status);
+      // try to find the contact
+      $contactID = self::findContactByName($dao, $status);
 
       if ($contactID == 0) {
         // the contact was not found, we create it
-        $contactID = self::createHesaMagContact($dao->organization, $dao->prefix, $dao->first_name, $dao->last_name, $status);
+        $contactID = self::createHesaMagContact($dao, $status);
       }
 
       if ($contactID > 0) {
         // add the magazine address and subscription
-        self::createHesaMagAddress($contactID, $dao, $status);  
+        self::createHesaMagAddress($contactID, $dao, $status);
       }
       
       // update the status
@@ -92,48 +92,69 @@ class CRM_Etuiimport_Importer {
     return TRUE;
   }
 
-  public static function createHesaMagContact($organization, $prefix, $firstName, $lastName, &$status) {
-    $woman = ['Ms', 'Mrs', 'Madame', 'Frau', 'Miss', 'Señora'];
+  public static function createHesaMagContact($dao, &$status) {
+    // try to find the organization (if it's not a fake org)
+    $orgID = 0;
+    if ($dao->organization && strpos($dao->organization, $dao->last_name) === FALSE) {
+      $sql = "select ifnull(min(id), 0) from civicrm_contact where contact_type = 'Organization' and organization_name = %1 and is_deleted = 0";
+      $sqlParams = [
+        1 => [$dao->organization, 'String'],
+      ];
+      $orgID = CRM_Core_DAO::singleValueQuery($sql, $sqlParams);
 
-    if ($firstName == '-' || $firstName == '--') {
-      $firstName = '';
-    }
-    if ($lastName == '-' || $lastName == '--') {
-      $lastName = '';
+      if ($orgID == 0) {
+        // try by replacing chars in the name
+        $sql = "select ifnull(min(id), 0) from civicrm_contact where contact_type = 'Organization' and 
+          replace(replace(replace(organization_name, ' ', ''), '/', ''), '-', '') = replace(replace(replace(%1, ' ', ''), '/', ''), '-', '')
+          and is_deleted = 0
+        ";
+        $sqlParams = [
+          1 => [$dao->organization, 'String'],
+        ];
+        $orgID = CRM_Core_DAO::singleValueQuery($sql, $sqlParams);
+
+        if ($orgID == 0) {
+          // not found, create the org
+          $params = [
+            'organization_name' => $dao->organization,
+            'contact_type' => 'Organization',
+            'sequential' => 1,
+            'source' => 'HESAMAG import',
+          ];
+          $result = civicrm_api3('Contact', 'create', $params);
+          $orgID = $result['id'];
+        }
+      }
     }
 
-    if ($firstName && $lastName) {
+    // create the individual
+    $persID = 0;
+    if ($dao->first_name || $dao->last_name) {
       $params = [
-        'first_name' => $firstName,
-        'last_name' => $lastName,
+        'first_name' => $dao->first_name,
+        'last_name' => $dao->last_name,
         'contact_type' => 'Individual',
         'sequential' => 1,
         'source' => 'HESAMAG import',
       ];
 
-      if (in_array($prefix, $woman)) {
+      if ($dao->prefix == 'Ms') {
         $params['prefix_id'] = 1;
       }
-      else {
+      elseif ($dao->prefix == 'Mr') {
         $params['prefix_id'] = 3;
       }
-    }
-    elseif ($organization && strpos($organization, $lastName) == FALSE) {
-      $params = [
-        'organization_name' => $organization,
-        'contact_type' => 'Organization',
-        'sequential' => 1,
-        'source' => 'HESAMAG import',
-      ];
-    }
-    else {
-      $status = 'Cannot create contact';
-      return -1;
+
+      if ($orgID > 0) {
+        $params['employer_id'] = $orgID;
+      }
+
+      $result = civicrm_api3('Contact', 'create', $params);
+      $persID = $result['id'];
     }
 
-    $result = civicrm_api3('Contact', 'create', $params);
     $status = 'created';
-    return $result['id'];
+    return $persID ? $persID : $orgID;
   }
 
   public static function createHesaMagAddress($contactID, $dao, &$status) {
@@ -165,7 +186,7 @@ class CRM_Etuiimport_Importer {
     $addressParams = [
       'contact_id' => $contactID,
       'location_type_id' => 8,
-      'street_address' => $dao->street_address,
+      'street_address' => $dao->address1,
       'city' => $dao->city,
       'postal_code' => $dao->postal_code,
     ];
@@ -174,7 +195,7 @@ class CRM_Etuiimport_Importer {
       $addressParams['country_id'] = $dao->country_id;
     }
     elseif ($dao->country) {
-      // this is a country that was not found in the country table, manually correct is
+      // this is a country that was not found in the country table, manually correct it
       $addressParams['country_id'] = self::getCountryID($dao->country);
     }
     else {
@@ -189,39 +210,26 @@ class CRM_Etuiimport_Importer {
 
     // FORMAT THE ADDRESS
 
-    // check for a person name
-    if ($dao->first_name || $dao->last_name) {
-      $name = $dao->first_name . ' ' . $dao->last_name;
-    }
-      // check if it's a real organization (ie. not a fake from Synergy)
-    if ($dao->organization && strpos($dao->organization, $dao->last_name) == FALSE) {
-      $addressParams['supplemental_address_1'] = $dao->organization;
+    if ($dao->department) {
+      $addressParams['supplemental_address_1'] = $dao->department;
 
-      if ($name && $dao->department) {
-        $addressParams['supplemental_address_2'] = $dao->department;
-        $addressParams['supplemental_address_3'] = 'Attn: ' . $name;
+      if ($dao->address2) {
+        $addressParams['supplemental_address_2'] = $dao->address2;
       }
-      elseif ($dao->department) {
-        $addressParams['supplemental_address_2'] = $dao->department;
-      }
-      elseif ($name) {
-        $addressParams['supplemental_address_2'] = 'Attn: ' . $name;
+
+      if ($dao->address3) {
+        $addressParams['supplemental_address_3'] = $dao->address3;
       }
     }
     else {
-        // person
-      if ($name && $dao->department) {
-        $addressParams['supplemental_address_1'] = $dao->department;
-        $addressParams['supplemental_address_2'] = 'Attn: ' . $name;
+      if ($dao->address2) {
+        $addressParams['supplemental_address_1'] = $dao->address2;
       }
-      elseif ($dao->department) {
-        $addressParams['supplemental_address_1'] = $dao->department;
-      }
-      elseif ($name) {
-        $addressParams['supplemental_address_1'] = $name;
+
+      if ($dao->address3) {
+        $addressParams['supplemental_address_2'] = $dao->address3;
       }
     }
-
     civicrm_api3('Address', 'create', $addressParams);
 
     // create the subscription
@@ -278,99 +286,54 @@ class CRM_Etuiimport_Importer {
     }
   }
 
-  public static function findContactByName($organization, $firstName, $lastName, &$status) {
-    if ($firstName == '-' || $firstName == '--') {
-      $firstName = '';
-    }
-    if ($lastName == '-' || $lastName == '--') {
-      $lastName = '';
-    }
-
-    // try full match
-    if ($organization && $firstName && $lastName) {
+  public static function findContactByName($dao, &$status) {
+    // 1. try first name + last name
+    if ($dao->first_name && $dao->last_name) {
       $params = [
-        'first_name' => $firstName,
-        'last_name' => $lastName,
-        'organization_name' => $organization,
+        'first_name' => $dao->first_name,
+        'last_name' => $dao->last_name,
         'contact_type' => 'Individual',
         'sequential' => 1,
       ];
       $result = civicrm_api3('Contact', 'get', $params);
 
       if ($result['count'] == 1) {
-        // OK
+        // OK, found 1 contact
         $status = 'OK';
         return $result['values'][0]['id'];
       }
-      elseif ($result['count'] > 0) {
-        // multiple matches
-        $status = "multiple matches for organissation + first name + last name";
-        return -1;
-      }
     }
 
-    // try match on person's name
-    if ($firstName && $lastName) {
+    // 2. try organization if no person name
+    if ($dao->firstName == '' && $dao->last_name == '' && $dao->organization) {
       $params = [
-        'first_name' => $firstName,
-        'last_name' => $lastName,
-        'contact_type' => 'Individual',
-        'sequential' => 1,
-      ];
-      $result = civicrm_api3('Contact', 'get', $params);
-
-      if ($result['count'] == 1) {
-        // OK
-        $status = 'OK';
-        return $result['values'][0]['id'];
-      }
-      elseif ($result['count'] > 0) {
-        // multiple matches
-        $status = "multiple matches for first name + last name";
-        return -1;
-      }
-    }
-
-    // try last name and organization
-    if ($lastName && $organization) {
-      $params = [
-        'last_name' => $lastName,
-        'organization_name' => $organization,
-        'contact_type' => 'Individual',
-        'sequential' => 1,
-      ];
-      $result = civicrm_api3('Contact', 'get', $params);
-
-      if ($result['count'] == 1) {
-        // OK
-        $status = 'OK';
-        return $result['values'][0]['id'];
-      }
-      elseif ($result['count'] > 0) {
-        // multiple matches
-        $status = "multiple matches for last name + organization";
-        return -1;
-      }
-    }
-
-    // try organization
-    if ($firstName == '' && $lastName == '' && $organization) {
-      $params = [
-        'organization_name' => $organization,
+        'organization_name' => $dao->organization,
         'contact_type' => 'Organization',
         'sequential' => 1,
       ];
       $result = civicrm_api3('Contact', 'get', $params);
 
-      if ($result['count'] == 1) {
-        // OK
+      if ($result['count'] > 0) {
+        // OK, return the first one
         $status = 'OK';
         return $result['values'][0]['id'];
       }
-      elseif ($result['count'] > 0) {
-        // multiple matches
-        $status = "multiple matches for organization";
-        return -1;
+    }
+    else {
+      // 3. try combination of org and person name
+      $params = [
+        'first_name' => $dao->first_name,
+        'last_name' => $dao->last_name,
+        'organization_name' => $dao->organization,
+        'contact_type' => 'Individual',
+        'sequential' => 1,
+      ];
+      $result = civicrm_api3('Contact', 'get', $params);
+
+      if ($result['count'] > 0) {
+        // OK, return the first one
+        $status = 'OK';
+        return $result['values'][0]['id'];
       }
     }
 
